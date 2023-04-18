@@ -1,6 +1,6 @@
 TARGET	:= nbuffvdi
 
-LIBCMINI ?= no
+LIBCMINI ?= yes
 
 CC	:= m68k-atari-mint-gcc
 

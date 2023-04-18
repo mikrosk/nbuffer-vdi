@@ -6,7 +6,7 @@
 #include <gem.h>
 #include <mint/osbind.h>
 
-void *AtariAlloc(size_t size, uint16_t alloc_type) {
+void *atari_alloc(size_t size, uint16_t alloc_type) {
     // Mxalloc is available since GEMDOS 0.19
     if (((Sversion()&0xFF) >= 0x01) || (Sversion() >= 0x1900)) {
         return (void *)Mxalloc(size, alloc_type);
@@ -46,6 +46,11 @@ int main(int argc, char *argv[]) {
             getchar();
             return EXIT_FAILURE;
         }
+
+        // flush keyboard
+        while (Cconis() == -1)  {
+            Cnecin();
+        }
     } else {
         // get the ID of the current physical screen workstation
         int16_t wcell, hcell, wbox, hbox;
@@ -79,14 +84,42 @@ int main(int argc, char *argv[]) {
     const int height = work_out[1] + 1;
     printf("all good: %d x %d\r\n", width, height);
 
-    uint8_t ch = 0xff;
+    const EVMULT_IN evmult_in = {
+        .emi_flags      = MU_KEYBD | MU_TIMER,
+
+        .emi_bclicks    = 0,
+        .emi_bmask      = 0,
+        .emi_bstate     = 0,
+
+        .emi_m1leave    = 0,
+        .emi_m1         = { 0, 0, 0, 0 },   // m1x, m1y, m1w, m1h (not used)
+
+        .emi_m2leave    = 0,
+        .emi_m2         = { 0, 0, 0, 0 },   // m2x, m2y, m2w, m2h (not used)
+
+        .emi_tlow       = 1,                // 1 ms
+        .emi_thigh      = 0                 //
+    };
+
+    bool quit = false;
     do {
-        //v_clrwk(vdi_handle);
+        if (aes_present) {
+            int16_t msg_buffer[8];
+            EVMULT_OUT evmult_out;
+            uint16_t event = evnt_multi_fast(&evmult_in, msg_buffer, &evmult_out);
+
+            if (event & MU_KEYBD)
+                quit = true;
+        } else {
+            if (Cconis() == -1)
+                quit = true;
+        }
+
+        // v_clrwk(vdi_handle);
 
         static int col;
 
         short pxy[4];
-        // color 0
         vsf_color(vdi_handle, col);
         vsf_interior(vdi_handle, FIS_SOLID);
         vsf_perimeter(vdi_handle, PERIMETER_OFF);
@@ -97,10 +130,7 @@ int main(int argc, char *argv[]) {
         v_bar(vdi_handle, pxy);
 
         col = ~col & 0x01;
-
-        // loop until ESC = 0x01 is pressed (blocking)
-    } while ((aes_present && (ch = ((evnt_keybd() >> 8) & 0xff)) != 0x01)
-             || (!aes_present && (ch = ((Crawcin() >> 16) & 0xff)) != 0x01));
+    } while (!quit);
 
     ///////////////////////////////////////////////////////////////////////////
 
