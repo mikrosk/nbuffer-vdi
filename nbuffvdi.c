@@ -115,21 +115,27 @@ int main(int argc, char *argv[]) {
                 quit = true;
         }
 
-        // v_clrwk(vdi_handle);
+        v_clrwk(vdi_handle);
 
-        static int col;
+        int16_t hor_out, vert_out;
+        vst_alignment(vdi_handle, TA_LEFT, TA_TOP, &hor_out, &vert_out);
+        char str[256];
+        sprintf(str, "hor_out: %d, vert_out: %d", hor_out, vert_out);
+        v_gtext(vdi_handle, 0, 0, str);
 
-        short pxy[4];
-        vsf_color(vdi_handle, col);
-        vsf_interior(vdi_handle, FIS_SOLID);
-        vsf_perimeter(vdi_handle, PERIMETER_OFF);
+//        static int col;
 
-        pxy[0] = pxy[1] = 0;
-        pxy[2] = width - 1;
-        pxy[3] = height - 1;
-        v_bar(vdi_handle, pxy);
+//        short pxy[4];
+//        vsf_color(vdi_handle, col);
+//        vsf_interior(vdi_handle, FIS_SOLID);
+//        vsf_perimeter(vdi_handle, PERIMETER_OFF);
 
-        col = ~col & 0x01;
+//        pxy[0] = pxy[1] = 0;
+//        pxy[2] = width - 1;
+//        pxy[3] = height - 1;
+//        v_bar(vdi_handle, pxy);
+
+//        col = ~col & 0x01;
     } while (!quit);
 
     ///////////////////////////////////////////////////////////////////////////
