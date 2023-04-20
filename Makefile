@@ -1,6 +1,6 @@
 TARGET	:= nbuffvdi
 
-LIBCMINI ?= yes
+LIBCMINI ?= no
 
 CC	:= m68k-atari-mint-gcc
 
@@ -16,13 +16,13 @@ LDFLAGS	:= -nostdlib $(LIBCMINI_ROOT)/lib/crt0.o $(LDFLAGS) -L$(LIBCMINI_ROOT)/l
 LDLIBS	:= -lcmini -lgcc $(LDLIBS)
 endif
 
-all: $(TARGET).ttp
+all: $(TARGET).tos
 
-$(TARGET).ttp: $(TARGET)
+$(TARGET).tos: $(TARGET)
 	cp $< $@
 
 $(TARGET): $(TARGET).o
 
 .PHONY: clean
 clean:
-	rm -f $(TARGET).ttp $(TARGET) *.o *~
+	rm -f $(TARGET).tos $(TARGET) *.o *~
