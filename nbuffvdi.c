@@ -5,6 +5,8 @@
 #include <string.h>
 
 #include <gem.h>
+#include <mint/cookie.h>
+#include <mint/falcon.h>
 #include <mint/osbind.h>
 #include <mint/ostruct.h>
 #include <mint/sysvars.h>
@@ -81,6 +83,20 @@ int main(int argc, char *argv[]) {
     int16_t vdi_handle;
     int16_t work_in[16] = {};
     int16_t work_out[57] = {};
+    bool is_falcon;
+
+    enum {
+        MCH_ST = 0,
+        MCH_STE,
+        MCH_TT,
+        MCH_FALCON,
+        MCH_CLONE,
+        MCH_ARANYM
+    };
+    long mch = MCH_ST<<16;
+    Getcookie(C__MCH, &mch);
+    mch >>= 16;
+    is_falcon = (mch == MCH_FALCON);
 
     if (app_id == -1 && aes_present) {
         fprintf(stderr, "appl_init() failed.\r\n");
@@ -175,7 +191,7 @@ int main(int argc, char *argv[]) {
         .emi_m2leave    = 0,
         .emi_m2         = { 0, 0, 0, 0 },   // m2x, m2y, m2w, m2h (not used)
 
-        .emi_tlow       = 1,                // 1 ms
+        .emi_tlow       = 0,                // 0 ms
         .emi_thigh      = 0                 //
     };
 
@@ -222,30 +238,30 @@ int main(int argc, char *argv[]) {
             // we're going to use pScreen[FRONT_BUFFER].pxy so call reset_screens() for init
             reset_screens();
             p_work_screen = p_screen[FRONT_BUFFER];
-            Setscreen(old_logbase, old_physbase, SCR_NOCHANGE);
             Vsync();
+            Setscreen(old_logbase, old_physbase, SCR_NOCHANGE);
             v_clrwk(vdi_handle);
             break;
         case '1':
             render_mode = SINGLE;
             reset_screens();
             p_work_screen = p_screen[FRONT_BUFFER];
-            Setscreen(p_screen[FRONT_BUFFER]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE);
             Vsync();
+            Setscreen(p_screen[FRONT_BUFFER]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE);
             break;
         case '2':
             render_mode = DOUBLE;
             reset_screens();
             p_work_screen = p_screen[BACK_BUFFER1];
-            Setscreen(p_screen[BACK_BUFFER1]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE);
             Vsync();
+            Setscreen(p_screen[BACK_BUFFER1]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE);
             break;
         case '3':
             render_mode = TRIPLE;
             reset_screens();
             p_work_screen = p_screen[BACK_BUFFER1];
-            Setscreen(p_screen[BACK_BUFFER1]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE);
             Vsync();
+            Setscreen(p_screen[BACK_BUFFER1]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE);
         }
 
         if (ascii != -1) {
@@ -257,51 +273,6 @@ int main(int argc, char *argv[]) {
 
         /// drawing ///
 
-        // do the screen handling now so we don't wait for evnt_multi just after Vsync()
-        if (render_mode == SINGLE) {
-            Vsync();
-        } else if (render_mode == DOUBLE) {
-            // swap
-            struct Screen *tmp = p_screen[FRONT_BUFFER];
-            p_screen[FRONT_BUFFER] = p_screen[BACK_BUFFER1];
-            p_screen[BACK_BUFFER1] = tmp;
-            // set (will be done in nearest vbl)
-            p_work_screen = p_screen[BACK_BUFFER1];
-            Setscreen(p_screen[BACK_BUFFER1]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE);
-            // wait for vbl
-            Vsync();
-        } else if (render_mode == TRIPLE) {
-            set_sysvar_to_long(vblsem, 0);  // lock vbl
-
-            static long old_vbclock;
-            if (!old_vbclock)
-                old_vbclock = get_sysvar(_vbclock);
-            long curr_vbclock = get_sysvar(_vbclock);
-
-            if (old_vbclock != curr_vbclock) {
-                // at least one vbl has passed since setting new video base
-                // guard BACK_BUFFER2 from overwriting while presented
-                struct Screen *tmp = p_screen[FRONT_BUFFER];
-                p_screen[FRONT_BUFFER] = p_screen[BACK_BUFFER2];
-                p_screen[BACK_BUFFER2] = tmp;
-
-                old_vbclock = curr_vbclock;
-            }
-
-            // swap back buffers
-            struct Screen *tmp = p_screen[BACK_BUFFER1];
-            p_screen[BACK_BUFFER1] = p_screen[BACK_BUFFER2];
-            p_screen[BACK_BUFFER2] = tmp;
-
-            // set BACK_BUFFER2 as the most recent frame content (will be done in nearest vbl)
-            //                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ no it wont
-            Setscreen(p_screen[BACK_BUFFER1]->p, p_screen[BACK_BUFFER2]->p, SCR_NOCHANGE);
-
-            set_sysvar_to_long(vblsem, 1);  // unlock vbl
-
-            p_work_screen = p_screen[BACK_BUFFER1];
-        }
-
         static long old_ticks;
         if (!old_ticks)
             old_ticks = get_sysvar(_hz_200);
@@ -310,8 +281,6 @@ int main(int argc, char *argv[]) {
         long diff = curr_ticks - old_ticks;
         old_ticks = curr_ticks;
 
-        frames++;
-
         // clear screen
         if (p_work_screen->pxy[2] != 0) {
             vsf_color(vdi_handle, 0);
@@ -319,7 +288,7 @@ int main(int argc, char *argv[]) {
         }
 
         char str[256] = {0};
-        sprintf(str, "Buffers: %d, frame time (ms): %ld, frames: %d       ", (int)render_mode, 1000 * diff / 200, frames);
+        sprintf(str, "Buffers: %d, frame time (ms): %03ld, frames: %d       ", (int)render_mode, 1000 * diff / 200, frames);
         v_gtext(vdi_handle, 0, 0, str);
 
         vsf_color(vdi_handle, 1);
@@ -349,6 +318,61 @@ int main(int argc, char *argv[]) {
                 pxy[3] += 40*mul;
             }
         }
+
+        /// swap ///
+
+        if (render_mode == SINGLE) {
+            Vsync();
+        } else if (render_mode == DOUBLE) {
+            // swap
+            struct Screen *tmp = p_screen[FRONT_BUFFER];
+            p_screen[FRONT_BUFFER] = p_screen[BACK_BUFFER1];
+            p_screen[BACK_BUFFER1] = tmp;
+            p_work_screen = p_screen[BACK_BUFFER1];
+            if (!is_falcon) {
+                // on ST/E, contrary to Falcon, reloading is happening on line 310 - 313;
+                // therefore if setting new video base address doesn't take more than 3 scan lines
+                // it will never lead to a corrupted screen address.
+                Setscreen(p_screen[BACK_BUFFER1]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE);
+                Vsync();
+            } else {
+                Vsync();
+                // setting new video base address happens on line defined by VDB (after VBL)
+                VsetScreen(p_screen[BACK_BUFFER1]->p, p_screen[FRONT_BUFFER]->p, SCR_NOCHANGE, SCR_NOCHANGE);
+            }
+        } else if (render_mode == TRIPLE) {
+            set_sysvar_to_short(vblsem, 0);  // lock vbl
+
+            static long old_vbclock;
+            if (!old_vbclock)
+                old_vbclock = get_sysvar(_vbclock);
+            long curr_vbclock = get_sysvar(_vbclock);
+
+            if (old_vbclock != curr_vbclock) {
+                // at least one vbl has passed since setting new video base
+                // guard BACK_BUFFER2 from overwriting while presented
+                struct Screen *tmp = p_screen[FRONT_BUFFER];
+                p_screen[FRONT_BUFFER] = p_screen[BACK_BUFFER2];
+                p_screen[BACK_BUFFER2] = tmp;
+
+                old_vbclock = curr_vbclock;
+            }
+
+            // swap back buffers
+            struct Screen *tmp = p_screen[BACK_BUFFER1];
+            p_screen[BACK_BUFFER1] = p_screen[BACK_BUFFER2];
+            p_screen[BACK_BUFFER2] = tmp;
+
+            // queue BACK_BUFFER2 with the most recent frame content
+            // (this will be set after VBL (Falcon) or before VBL (ST/STE/TT)
+            Setscreen(p_screen[BACK_BUFFER1]->p, p_screen[BACK_BUFFER2]->p, SCR_NOCHANGE);
+
+            set_sysvar_to_short(vblsem, 1);  // unlock vbl
+
+            p_work_screen = p_screen[BACK_BUFFER1];
+        }
+
+        frames++;
     } while (!quit);
 
     Setscreen(old_logbase, old_physbase, SCR_NOCHANGE);
@@ -372,7 +396,7 @@ int main(int argc, char *argv[]) {
         v_clswk(vdi_handle);
     }
 
-    printf("Frames: %d", frames);
+    printf("Frames: %d\n", frames);
 
     return EXIT_SUCCESS;
 }
